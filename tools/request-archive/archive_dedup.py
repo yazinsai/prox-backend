@@ -351,7 +351,9 @@ def inventory_snapshot():
     """
     global _PACK_INVENTORY_DEPTH
     if _PACK_INVENTORY_DEPTH == 0:
-        _PACK_INDEX.clear()
+        # Force one signature check per directory instead of discarding entries:
+        # packs are immutable, so an unchanged signature proves the entries current
+        # and avoids reopening every pack on each watcher cycle.
         _PACK_GENERATIONS.clear()
     _PACK_INVENTORY_DEPTH += 1
     try:
@@ -431,7 +433,7 @@ def payload_metadata_locations(directory, suffix):
     return [locations[name] for name in sorted(locations)]
 
 
-def pack_payloads(directory, prefix, suffix, batch_size, validator, all_tails=False):
+def pack_payloads(directory, prefix, suffix, batch_size, validator, all_tails=False, progress=None):
     """Pack already-compressed objects; publication precedes verified cleanup."""
     if not directory.exists():
         return 0
@@ -462,6 +464,8 @@ def pack_payloads(directory, prefix, suffix, batch_size, validator, all_tails=Fa
             with os.fdopen(fd, 'w+b') as output:
                 with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as pack:
                     for path in candidates:
+                        if progress is not None:
+                            progress(count)
                         before = path.stat()
                         validator(path)
                         snapshots[path.name] = (before.st_ino, before.st_size, before.st_mtime_ns)
@@ -509,7 +513,7 @@ def validate_chunk_file(directory, path):
         raise ValueError('Archive chunk pack source failed verification')
 
 
-def compact_storage(directory, all_tails=False):
+def compact_storage(directory, all_tails=False, progress=None):
     """Compact shared payloads without recompressing or changing references."""
     # Bulk optimization minimizes pack headers and allocation slack. The watcher
     # uses smaller thresholds so newly captured objects do not accumulate loose.
@@ -517,7 +521,7 @@ def compact_storage(directory, all_tails=False):
     chunk_batch = 5000 if all_tails else 100
     manifests = pack_payloads(directory / 'request-records', 'records-', MANIFEST_SUFFIX, manifest_batch,
                               lambda path: read_manifest(path, path.name.removesuffix(MANIFEST_SUFFIX)),
-                              all_tails=all_tails)
+                              all_tails=all_tails, progress=progress)
     chunks = 0
     root = directory / 'request-chunks'
     if root.is_symlink():
@@ -525,12 +529,15 @@ def compact_storage(directory, all_tails=False):
     for shard in sorted(root.glob('*')):
         if shard.name == 'dictionaries':
             continue
+        if progress is not None:
+            progress(manifests + chunks)
         if not shard.is_dir():
             continue
         if shard.is_symlink() or re.fullmatch(r'[0-9a-f]{2}', shard.name) is None:
             raise ValueError('Invalid archive chunk shard')
         chunks += pack_payloads(shard, 'chunks-', '.zst', chunk_batch,
-                                lambda path: validate_chunk_file(directory, path), all_tails=all_tails)
+                                lambda path: validate_chunk_file(directory, path), all_tails=all_tails,
+                                progress=progress)
     return {'packed_manifests': manifests, 'packed_chunks': chunks}
 
 

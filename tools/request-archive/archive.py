@@ -214,11 +214,26 @@ def compact(db, directory, batch_size=100):
                     os.unlink(temporary)
 
 
-def index(db, directory):
+def heartbeat_every(progress, interval=5):
+    """Rate-limit a progress callback so long passes keep health reporting fresh."""
+    last = time.monotonic()
+
+    def beat(*args):
+        nonlocal last
+        if progress is not None and time.monotonic() - last >= interval:
+            progress(*args)
+            # Publication itself can be slow; wait a full interval after it.
+            last = time.monotonic()
+    return beat
+
+
+def index(db, directory, progress=None):
     added = 0
     failures = []
+    heartbeat = heartbeat_every(progress)
     with dedup.inventory_snapshot(), archive_sources(directory) as sources:
         for name, (modified_ns, compressed_bytes, container, opener) in sources.items():
+            heartbeat(added)
             old = db.execute('SELECT modified_ns, compressed_bytes, container FROM records WHERE name=?',
                              (name,)).fetchone()
             if old == (modified_ns, compressed_bytes, container):
@@ -346,8 +361,13 @@ def optimize(db, directory, chunk_bytes=dedup.DEFAULT_CHUNK_BYTES,
             update_index()
             if progress is not None:
                 progress(count)
+                last_progress = time.monotonic()
         for path in loose:
             if not path.exists():
+                continue
+            # The recorder publishes continuously, so records can land after this
+            # cycle's index pass. Leave them for the next cycle instead of failing.
+            if db.execute('SELECT 1 FROM records WHERE name=?', (path.name,)).fetchone() is None:
                 continue
             before = path.stat()
             with path.open('rb') as source:
@@ -361,7 +381,9 @@ def optimize(db, directory, chunk_bytes=dedup.DEFAULT_CHUNK_BYTES,
             update_index()
         if progress is not None:
             progress(count)
-        packed = dedup.compact_storage(directory, all_tails=pack_tails)
+            last_progress = time.monotonic()
+        packed = dedup.compact_storage(directory, all_tails=pack_tails,
+                                        progress=lambda _: heartbeat())
     return {'optimized': count, **packed}
 
 
@@ -434,6 +456,14 @@ def publish_stats(db, directory, error=None, now=None):
     return stats
 
 
+SLOW_CYCLE_SECONDS = 30
+
+
+def log(message):
+    # Timestamps and error types only: paths or exception text can contain private data.
+    print(f'{datetime.now(timezone.utc).isoformat(timespec="seconds")} {message}', file=sys.stderr, flush=True)
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -475,18 +505,26 @@ def main():
         return
     with closing(connect(directory)) as db:
         if args.command == 'watch':
+            report = lambda _: publish_stats(db, directory)
             while True:
+                phases = {}
+                started = time.monotonic()
                 try:
-                    index(db, directory)
-                    optimize(db, directory, max_packs=1, max_loose=100,
-                             progress=lambda _: publish_stats(db, directory))
+                    index(db, directory, progress=report)
+                    phases['index'] = time.monotonic() - started
+                    optimize(db, directory, max_packs=1, max_loose=100, progress=report)
+                    phases['optimize'] = time.monotonic() - started - phases['index']
                     publish_stats(db, directory)
                 except Exception as error:
-                    print(f'Archive indexing failed: {type(error).__name__}; will retry', file=sys.stderr, flush=True)
+                    log(f'Archive indexing failed: {type(error).__name__}; will retry')
                     try:
                         publish_stats(db, directory, error=error)
                     except Exception as report_error:
-                        print(f'Archive health publication failed: {type(report_error).__name__}', file=sys.stderr, flush=True)
+                        log(f'Archive health publication failed: {type(report_error).__name__}')
+                elapsed = time.monotonic() - started
+                if elapsed >= SLOW_CYCLE_SECONDS:
+                    timings = ' '.join(f'{phase}={seconds:.1f}s' for phase, seconds in phases.items())
+                    log(f'Archive cycle slow: total={elapsed:.1f}s {timings}'.rstrip())
                 time.sleep(10)
         elif args.command == 'index':
             added = index(db, directory)

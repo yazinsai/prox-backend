@@ -482,6 +482,84 @@ class DedupArchiveTests(unittest.TestCase):
                     self.assertEqual(dedup.read_chunk(directory, reference), b'original packed chunk')
                 self.assertEqual(len(scans), before + 1)
 
+    def test_optimize_defers_records_published_after_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            first, first_body = self.make_record(directory, 1, b'indexed\n')
+            with closing(archive.connect(directory)) as db:
+                archive.index(db, directory)
+                # The recorder can publish between the index pass and the optimizer.
+                late, late_body = self.make_record(directory, 2, b'arrived after index\n')
+                self.assertEqual(archive.optimize(db, directory)['optimized'], 1)
+                self.assertFalse((directory / first).exists())
+                self.assertTrue((directory / late).exists())
+                archive.index(db, directory)
+                self.assertEqual(archive.optimize(db, directory)['optimized'], 1)
+                self.assertFalse((directory / late).exists())
+                for name, body in ((first, first_body), (late, late_body)):
+                    with archive.open_record(directory, name) as source:
+                        self.assertEqual(source.read(), body)
+                stats = archive.publish_stats(db, directory)
+                self.assertEqual((stats['state'], stats['records'], stats['archive_files']), ('healthy', 2, 2))
+
+    def test_inventory_snapshot_reuses_unchanged_packs_and_sees_new_ones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            name = 'v1-responses-2026-11-05T150000-00000001.log.zst'
+            dedup.publish_record(directory, name, b'first packed chunk', 1, 8)
+            dedup.compact_storage(directory, all_tails=True)
+            reference = dedup.read_manifest(dedup.manifest_path(directory, name), name)['chunks'][0]
+            shard = dedup.chunk_path(directory, reference['hash']).parent
+            dedup._PACK_INDEX.clear()
+            dedup._PACK_GENERATIONS.clear()
+            dedup.packed_index(shard)
+            opened = []
+            original = dedup.zipfile.ZipFile
+            def counted(file, *args, **kwargs):
+                opened.append(file)
+                return original(file, *args, **kwargs)
+            with patch.object(dedup.zipfile, 'ZipFile', counted):
+                for _ in range(3):
+                    with dedup.inventory_snapshot():
+                        dedup.packed_index(shard)
+                self.assertEqual(opened, [])
+            body = b'second packed chunk'
+            digest = hashlib.sha256(body).hexdigest()
+            loose = dedup.chunk_path(directory, digest)
+            loose.parent.mkdir(parents=True, exist_ok=True)
+            loose.write_bytes(dedup.zstd.compress(body))
+            # Publishing a new immutable pack must be visible to the next snapshot.
+            dedup.pack_payloads(loose.parent, 'chunks-', '.zst', 1,
+                                lambda path: dedup.validate_chunk_file(directory, path), all_tails=True)
+            self.assertFalse(loose.exists())
+            with dedup.inventory_snapshot():
+                self.assertIn(loose.name, dedup.packed_index(loose.parent))
+                self.assertEqual(dedup.read_chunk(directory, {'hash': digest, 'size': len(body)}), body)
+
+    def test_long_index_and_compaction_passes_keep_reporting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            for number in range(3):
+                self.make_record(directory, number, b'record %d\n' % number)
+            clock = [0]
+            reports = []
+            def report(count):
+                reports.append(count)
+            original_stat = Path.stat
+            def slow_stat(path, *args, **kwargs):
+                clock[0] += 10  # Each filesystem touch is slow under I/O pressure.
+                return original_stat(path, *args, **kwargs)
+            with closing(archive.connect(directory)) as db, \
+                 patch.object(archive.time, 'monotonic', lambda: clock[0]), \
+                 patch.object(Path, 'stat', slow_stat):
+                archive.index(db, directory, progress=report)
+                self.assertTrue(reports)
+                reports.clear()
+                calls = []
+                with patch.object(dedup, 'pack_payloads', lambda *a, **k: calls.append(k.get('progress')) or 0):
+                    archive.optimize(db, directory, progress=report)
+                self.assertTrue(calls and all(callable(progress) for progress in calls))
+
     def test_deduplicated_decoder_rejects_excessive_window(self):
         import io
         compressor = zstd.ZstdCompressor(options={zstd.CompressionParameter.compression_level: 1,
