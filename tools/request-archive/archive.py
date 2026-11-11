@@ -55,7 +55,7 @@ def open_member(path, name):
 
 
 @contextmanager
-def archive_sources(directory):
+def archive_sources(directory, progress=None):
     """List immutable members without keeping every pack's file descriptor open."""
     sources = {}
     for pack in sorted(directory.glob('requests-*.zip')):
@@ -82,6 +82,8 @@ def archive_sources(directory):
         sources[path.name] = (stat.st_mtime_ns, stat.st_size, None,
                               lambda path=path: path.open('rb'))
     for path, identity in dedup.payload_metadata_locations(directory / 'request-records', dedup.MANIFEST_SUFFIX):
+        if progress is not None:
+            progress()  # A cold listing rereads every manifest and can take minutes.
         name = path.name.removesuffix(dedup.MANIFEST_SUFFIX)
         manifest = dedup.manifest_metadata(path, name, identity)
         container = str(path.relative_to(directory))
@@ -231,7 +233,9 @@ def index(db, directory, progress=None):
     added = 0
     failures = []
     heartbeat = heartbeat_every(progress)
-    with dedup.inventory_snapshot(), archive_sources(directory) as sources:
+    # Full publication needs this listing, so only refresh liveness while it runs.
+    alive = heartbeat_every(lambda: touch_stats(directory) if progress is not None else None)
+    with dedup.inventory_snapshot(), archive_sources(directory, progress=alive) as sources:
         for name, (modified_ns, compressed_bytes, container, opener) in sources.items():
             heartbeat(added)
             old = db.execute('SELECT modified_ns, compressed_bytes, container FROM records WHERE name=?',
@@ -443,6 +447,11 @@ def publish_stats(db, directory, error=None, now=None):
                    'records': daily.get((first_day + timedelta(days=i)).isoformat(), 0)}
                   for i in range(7)],
     }
+    write_stats(directory, stats)
+    return stats
+
+
+def write_stats(directory, stats):
     fd, temporary = tempfile.mkstemp(prefix='.request-archive-stats-', dir=directory)
     try:
         with os.fdopen(fd, 'w') as output:
@@ -453,6 +462,18 @@ def publish_stats(db, directory, error=None, now=None):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def touch_stats(directory, now=None):
+    """Report liveness during a long listing; counters stay the last published ones."""
+    try:
+        stats = json.loads((directory / 'request-archive-stats.json').read_text())
+    except (FileNotFoundError, ValueError):
+        return None
+    if not isinstance(stats, dict) or stats.get('schema_version') != 1:
+        return None
+    stats['updated_at'] = (now or datetime.now(timezone.utc)).isoformat()
+    write_stats(directory, stats)
     return stats
 
 

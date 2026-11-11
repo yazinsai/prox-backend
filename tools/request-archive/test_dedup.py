@@ -543,22 +543,36 @@ class DedupArchiveTests(unittest.TestCase):
                 self.make_record(directory, number, b'record %d\n' % number)
             clock = [0]
             reports = []
-            def report(count):
-                reports.append(count)
             original_stat = Path.stat
+
             def slow_stat(path, *args, **kwargs):
                 clock[0] += 10  # Each filesystem touch is slow under I/O pressure.
                 return original_stat(path, *args, **kwargs)
-            with closing(archive.connect(directory)) as db, \
-                 patch.object(archive.time, 'monotonic', lambda: clock[0]), \
-                 patch.object(Path, 'stat', slow_stat):
-                archive.index(db, directory, progress=report)
-                self.assertTrue(reports)
-                reports.clear()
-                calls = []
-                with patch.object(dedup, 'pack_payloads', lambda *a, **k: calls.append(k.get('progress')) or 0):
-                    archive.optimize(db, directory, progress=report)
-                self.assertTrue(calls and all(callable(progress) for progress in calls))
+
+            with closing(archive.connect(directory)) as db:
+                with patch.object(archive.time, 'monotonic', lambda: clock[0]), \
+                     patch.object(Path, 'stat', slow_stat):
+                    archive.index(db, directory, progress=reports.append)
+                    self.assertTrue(reports)
+                    calls = []
+                    with patch.object(dedup, 'pack_payloads',
+                                      lambda *a, **k: calls.append(k.get('progress')) or 0):
+                        archive.optimize(db, directory, progress=reports.append)
+                    self.assertTrue(calls and all(callable(progress) for progress in calls))
+                # Every record is now a manifest; a cold listing visits each one
+                # before index can report, so the listing itself must heartbeat.
+                beats = []
+                with archive.archive_sources(directory, progress=lambda: beats.append(1)) as sources:
+                    self.assertEqual(len(sources), 3)
+                self.assertEqual(len(beats), 3)
+                published = archive.publish_stats(
+                    db, directory, now=archive.datetime(2026, 1, 1, tzinfo=archive.timezone.utc))
+                touched = archive.touch_stats(directory)
+                self.assertNotEqual(touched['updated_at'], published['updated_at'])
+                stored = json.loads((directory / 'request-archive-stats.json').read_text())
+                self.assertEqual(stored, touched)
+                self.assertEqual({k: v for k, v in touched.items() if k != 'updated_at'},
+                                 {k: v for k, v in published.items() if k != 'updated_at'})
 
     def test_deduplicated_decoder_rejects_excessive_window(self):
         import io
