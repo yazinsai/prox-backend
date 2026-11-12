@@ -2,6 +2,7 @@ package logging
 
 import (
 	"archive/zip"
+	"container/list"
 	"errors"
 	"hash/crc32"
 	"io"
@@ -13,9 +14,11 @@ import (
 	"sync"
 )
 
+// Bounds sized to keep a multi-week archive (about 800k chunks in 8k packs)
+// fully cached. Exceeding them evicts the least recently used packs only.
 const (
-	maxRequestPackCacheMembers = 500000
-	maxRequestPackCacheEntries = 8192
+	maxRequestPackCacheMembers = 1_000_000
+	maxRequestPackCacheEntries = 16384
 )
 
 type requestPackedMember struct {
@@ -31,13 +34,77 @@ type requestPackMetadata struct {
 	members    map[string]requestPackedMember
 }
 
-// Packs are immutable. Cache their offsets, never their open files or payloads.
-var requestPackCache = struct {
+// requestArchiveLRU bounds archive metadata by total members and entries and
+// evicts least recently used entries. Clearing everything on overflow made an
+// archive larger than the bound thrash: almost every chunk read reparsed the
+// central directories of dozens of packs.
+type requestArchiveLRU[V any] struct {
 	sync.Mutex
 	directory string
-	entries   map[string]requestPackMetadata
+	order     *list.List
+	entries   map[string]*list.Element
 	members   int
-}{entries: make(map[string]requestPackMetadata)}
+	// Zero limits use the package bounds; tests set small ones.
+	maxMembers, maxEntries int
+}
+
+type requestArchiveLRUItem[V any] struct {
+	key     string
+	value   V
+	members int
+}
+
+// scope drops entries from another archive directory. Callers hold the lock.
+func (cache *requestArchiveLRU[V]) scope(directory string) {
+	if cache.entries == nil || cache.directory != directory {
+		cache.directory = directory
+		cache.order = list.New()
+		cache.entries = make(map[string]*list.Element)
+		cache.members = 0
+	}
+}
+
+func (cache *requestArchiveLRU[V]) get(key string) (V, bool) {
+	element, exists := cache.entries[key]
+	if !exists {
+		var zero V
+		return zero, false
+	}
+	cache.order.MoveToFront(element)
+	return element.Value.(*requestArchiveLRUItem[V]).value, true
+}
+
+func (cache *requestArchiveLRU[V]) put(key string, value V, members int) {
+	maxMembers, maxEntries := cache.maxMembers, cache.maxEntries
+	if maxMembers == 0 {
+		maxMembers = maxRequestPackCacheMembers
+	}
+	if maxEntries == 0 {
+		maxEntries = maxRequestPackCacheEntries
+	}
+	cache.remove(key)
+	if members > maxMembers {
+		return
+	}
+	cache.entries[key] = cache.order.PushFront(&requestArchiveLRUItem[V]{key: key, value: value, members: members})
+	cache.members += members
+	for cache.members > maxMembers || len(cache.entries) > maxEntries {
+		cache.remove(cache.order.Back().Value.(*requestArchiveLRUItem[V]).key)
+	}
+}
+
+func (cache *requestArchiveLRU[V]) remove(key string) {
+	element, exists := cache.entries[key]
+	if !exists {
+		return
+	}
+	cache.members -= element.Value.(*requestArchiveLRUItem[V]).members
+	cache.order.Remove(element)
+	delete(cache.entries, key)
+}
+
+// Packs are immutable. Cache their offsets, never their open files or payloads.
+var requestPackCache requestArchiveLRU[requestPackMetadata]
 
 func openRequestPack(root *os.Root, path string) (*os.File, os.FileInfo, map[string]requestPackedMember, error) {
 	file, errOpen := root.Open(path)
@@ -51,12 +118,8 @@ func openRequestPack(root *os.Root, path string) (*os.File, os.FileInfo, map[str
 	}
 	key := filepath.Join(root.Name(), path)
 	requestPackCache.Lock()
-	if requestPackCache.directory != root.Name() {
-		requestPackCache.directory = root.Name()
-		requestPackCache.entries = make(map[string]requestPackMetadata)
-		requestPackCache.members = 0
-	}
-	metadata, cached := requestPackCache.entries[key]
+	requestPackCache.scope(root.Name())
+	metadata, cached := requestPackCache.get(key)
 	requestPackCache.Unlock()
 	if cached && os.SameFile(metadata.info, info) && metadata.modifiedNs == info.ModTime().UnixNano() && metadata.size == info.Size() {
 		return file, info, metadata.members, nil
@@ -97,20 +160,10 @@ func openRequestPack(root *os.Root, path string) (*os.File, os.FileInfo, map[str
 		}
 		members[member.Name] = requestPackedMember{offset: offset, size: int64(member.CompressedSize64), crc: member.CRC32}
 	}
-	if len(members) <= maxRequestPackCacheMembers {
-		requestPackCache.Lock()
-		if requestPackCache.directory != root.Name() || requestPackCache.members+len(members) > maxRequestPackCacheMembers || len(requestPackCache.entries) >= maxRequestPackCacheEntries {
-			requestPackCache.directory = root.Name()
-			requestPackCache.entries = make(map[string]requestPackMetadata)
-			requestPackCache.members = 0
-		}
-		if old, exists := requestPackCache.entries[key]; exists {
-			requestPackCache.members -= len(old.members)
-		}
-		requestPackCache.entries[key] = requestPackMetadata{info: info, modifiedNs: info.ModTime().UnixNano(), size: info.Size(), members: members}
-		requestPackCache.members += len(members)
-		requestPackCache.Unlock()
-	}
+	requestPackCache.Lock()
+	requestPackCache.scope(root.Name())
+	requestPackCache.put(key, requestPackMetadata{info: info, modifiedNs: info.ModTime().UnixNano(), size: info.Size(), members: members}, len(members))
+	requestPackCache.Unlock()
 	return file, info, members, nil
 }
 
@@ -121,12 +174,7 @@ type requestPackLookupMetadata struct {
 
 // Directory identity and metadata detect atomic pack publication/removal. The
 // index locates one containing pack per object and retains no file descriptors.
-var requestPackLookupCache = struct {
-	sync.Mutex
-	directory string
-	entries   map[string]requestPackLookupMetadata
-	members   int
-}{entries: make(map[string]requestPackLookupMetadata)}
+var requestPackLookupCache requestArchiveLRU[requestPackLookupMetadata]
 
 func requestPackLookup(root *os.Root, directory, prefix string) (map[string]string, error) {
 	info, errStat := root.Stat(directory)
@@ -136,12 +184,8 @@ func requestPackLookup(root *os.Root, directory, prefix string) (map[string]stri
 	key := directory + "\x00" + prefix
 	requestPackLookupCache.Lock()
 	defer requestPackLookupCache.Unlock()
-	if requestPackLookupCache.directory != root.Name() {
-		requestPackLookupCache.directory = root.Name()
-		requestPackLookupCache.entries = make(map[string]requestPackLookupMetadata)
-		requestPackLookupCache.members = 0
-	}
-	old, cached := requestPackLookupCache.entries[key]
+	requestPackLookupCache.scope(root.Name())
+	old, cached := requestPackLookupCache.get(key)
 	if cached && os.SameFile(old.info, info) && old.info.ModTime().Equal(info.ModTime()) && old.info.Size() == info.Size() {
 		return old.members, nil
 	}
@@ -167,17 +211,7 @@ func requestPackLookup(root *os.Root, directory, prefix string) (map[string]stri
 			return nil, errClose
 		}
 	}
-	if len(lookup) <= maxRequestPackCacheMembers {
-		if cached {
-			requestPackLookupCache.members -= len(old.members)
-		}
-		if requestPackLookupCache.members+len(lookup) > maxRequestPackCacheMembers || len(requestPackLookupCache.entries) >= maxRequestPackCacheEntries {
-			requestPackLookupCache.entries = make(map[string]requestPackLookupMetadata)
-			requestPackLookupCache.members = 0
-		}
-		requestPackLookupCache.entries[key] = requestPackLookupMetadata{info: info, members: lookup}
-		requestPackLookupCache.members += len(lookup)
-	}
+	requestPackLookupCache.put(key, requestPackLookupMetadata{info: info, members: lookup}, len(lookup))
 	return lookup, nil
 }
 
@@ -187,11 +221,7 @@ func invalidateRequestPackLookup(root *os.Root, directory, prefix string) {
 	if requestPackLookupCache.directory != root.Name() {
 		return
 	}
-	key := directory + "\x00" + prefix
-	if entry, exists := requestPackLookupCache.entries[key]; exists {
-		requestPackLookupCache.members -= len(entry.members)
-		delete(requestPackLookupCache.entries, key)
-	}
+	requestPackLookupCache.remove(directory + "\x00" + prefix)
 }
 
 type storedRequestMemberReader struct {

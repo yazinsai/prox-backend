@@ -175,3 +175,35 @@ func TestArchivePackLookupRetriesMissingContainer(t *testing.T) {
 	}
 	archiveLookupRead(t, root, ".", "same.zst", []byte("replacement"))
 }
+
+func TestArchiveLRUEvictsOnlyLeastRecentlyUsed(t *testing.T) {
+	cache := requestArchiveLRU[int]{maxMembers: 3, maxEntries: 3}
+	cache.scope("archive")
+	for i, key := range []string{"a", "b", "c"} {
+		cache.put(key, i, 1)
+	}
+	if _, ok := cache.get("a"); !ok {
+		t.Fatal("a missing before eviction")
+	}
+	cache.put("d", 3, 1)
+	if _, ok := cache.get("b"); ok {
+		t.Fatal("least recently used entry survived")
+	}
+	for _, key := range []string{"a", "c", "d"} {
+		if _, ok := cache.get(key); !ok {
+			t.Fatalf("overflow evicted recently used entry %s", key)
+		}
+	}
+	cache.put("big", 4, 2)
+	if cache.members != 3 || len(cache.entries) != 2 {
+		t.Fatalf("member bound: members=%d entries=%d", cache.members, len(cache.entries))
+	}
+	cache.put("huge", 5, 4)
+	if _, ok := cache.get("huge"); ok || cache.members > 3 {
+		t.Fatal("entry above the member bound was cached")
+	}
+	cache.scope("other")
+	if len(cache.entries) != 0 || cache.members != 0 {
+		t.Fatal("directory change retained entries")
+	}
+}
