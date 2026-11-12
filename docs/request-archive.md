@@ -135,7 +135,8 @@ members using ZIP_STORED (no second compression pass). This reduces filesystem
 file count; it does not compress shared content across requests. Original names,
 completion timestamps at nanosecond precision, and payload digests are preserved.
 Readers open one member directly. Request-ID downloads, named error downloads,
-error listings, and quota history work across standalone and packed archives.
+error listings, and the one-time quota-history backfill (see
+[request-facts.md](request-facts.md)) work across standalone and packed archives.
 CLI search keeps original record names; export accepts those same names.
 
 The packer verifies every decompressed member against the indexed SHA-256,

@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -101,19 +100,7 @@ func TestDeduplicatedArchiveQuotaHistoryMatchesOriginalBytes(t *testing.T) {
 	dir := t.TempDir()
 	name := "v1-responses-2026-11-05T161716-a.log.zst"
 	deduplicatedManagementFixture(t, dir, name, []byte(quotaHistoryRecordFixture))
-	want, err := parseQuotaHistoryRecord(strings.NewReader(quotaHistoryRecordFixture))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := parseQuotaHistoryFile(filepath.Join(dir, name))
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("dedup changed parsed quota history: got=%+v want=%+v err=%v", got, want, err)
-	}
-	var cache quotaHistoryCache
-	samples := cache.load(dir, time.Now().Add(-time.Hour))
-	if len(cache.files) != 1 || !reflect.DeepEqual(samples, want) {
-		t.Fatalf("dedup history unavailable via listing: files=%d samples=%+v", len(cache.files), samples)
-	}
+	assertArchiveBackfill(t, dir)
 }
 
 func packManagementDedupFixture(t *testing.T, dir, prefix string) {
@@ -182,13 +169,5 @@ func TestDeduplicatedArchivePackedDownloadAndQuota(t *testing.T) {
 			t.Fatalf("packed dedup download byID=%v: status %d", byID, rec.Code)
 		}
 	}
-	want, err := parseQuotaHistoryRecord(strings.NewReader(quotaHistoryRecordFixture))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cache quotaHistoryCache
-	got := cache.load(dir, time.Now().Add(-time.Hour))
-	if len(cache.files) != 1 || !reflect.DeepEqual(got, want) {
-		t.Fatalf("packed dedup quota history: files=%d got=%+v want=%+v", len(cache.files), got, want)
-	}
+	assertArchiveBackfill(t, dir)
 }
