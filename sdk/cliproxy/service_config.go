@@ -165,6 +165,7 @@ func (s *Service) commitConfigUpdate(newCfg *config.Config) configCommit {
 	s.cancelStaleAntigravityProbes("")
 	s.configSequence++
 	registry.UpdateModelCatalogSources(newCfg.Models, newCfg.Home.Enabled)
+	s.signalCompatModelDiscovery()
 	return configCommit{cfg: newCfg, sequence: s.configSequence}
 }
 

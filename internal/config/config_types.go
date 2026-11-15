@@ -1092,6 +1092,50 @@ type OpenAICompatibility struct {
 
 	// RequestScopedErrors configures custom classification rules for upstream errors.
 	RequestScopedErrors []RequestScopedErrorRule `yaml:"request-scoped-errors,omitempty" json:"request-scoped-errors,omitempty"`
+
+	// ModelsDiscovery periodically lists the provider's GET {base-url}/models catalog
+	// and routes every listed model alongside the explicitly configured Models.
+	ModelsDiscovery *OpenAICompatibilityModelsDiscovery `yaml:"models-discovery,omitempty" json:"models-discovery,omitempty"`
+}
+
+// Model discovery refresh bounds. Catalogs change on the order of days, so the
+// default keeps upstream traffic to a few requests per provider per day.
+const (
+	DefaultModelsDiscoveryRefreshInterval = 6 * time.Hour
+	MinModelsDiscoveryRefreshInterval     = 15 * time.Minute
+)
+
+// OpenAICompatibilityModelsDiscovery configures automatic model listing for an
+// OpenAI-compatible provider. Explicit Models entries keep their aliases and
+// settings; discovered IDs not already exposed are routed under their own name.
+type OpenAICompatibilityModelsDiscovery struct {
+	// Enabled turns discovery on for this provider.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// RefreshInterval is a Go duration ("6h", "24h"). Empty or invalid values use
+	// the default; values below the minimum are raised to it.
+	RefreshInterval string `yaml:"refresh-interval,omitempty" json:"refresh-interval,omitempty"`
+
+	// Exclude lists discovered model IDs to skip; "*" wildcards are supported.
+	Exclude []string `yaml:"exclude,omitempty" json:"exclude,omitempty"`
+}
+
+// DiscoveryEnabled reports whether this provider lists its models upstream.
+func (c *OpenAICompatibility) DiscoveryEnabled() bool {
+	return c != nil && !c.Disabled && c.ModelsDiscovery != nil && c.ModelsDiscovery.Enabled &&
+		strings.TrimSpace(c.BaseURL) != ""
+}
+
+// Interval returns the effective refresh interval.
+func (d *OpenAICompatibilityModelsDiscovery) Interval() time.Duration {
+	if d == nil {
+		return DefaultModelsDiscoveryRefreshInterval
+	}
+	parsed, errParse := time.ParseDuration(strings.TrimSpace(d.RefreshInterval))
+	if errParse != nil || parsed <= 0 {
+		return DefaultModelsDiscoveryRefreshInterval
+	}
+	return max(parsed, MinModelsDiscoveryRefreshInterval)
 }
 
 // OpenAICompatibilityAPIKey represents an API key configuration with optional proxy setting.

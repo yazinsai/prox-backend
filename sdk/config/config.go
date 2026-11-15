@@ -42,6 +42,7 @@ type VertexCompatModel = internalconfig.VertexCompatModel
 type OpenAICompatibility = internalconfig.OpenAICompatibility
 type OpenAICompatibilityAPIKey = internalconfig.OpenAICompatibilityAPIKey
 type OpenAICompatibilityModel = internalconfig.OpenAICompatibilityModel
+type OpenAICompatibilityModelsDiscovery = internalconfig.OpenAICompatibilityModelsDiscovery
 
 type TLS = internalconfig.TLSConfig
 

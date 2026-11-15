@@ -145,6 +145,10 @@ type Service struct {
 	antigravityProbeMu       sync.Mutex
 	antigravityAccountProbes map[string]map[*antigravityAccountProbe]struct{}
 	antigravityRefreshWake   chan struct{}
+
+	// compatDiscoveryWake re-evaluates model-discovery deadlines after config changes.
+	compatDiscoveryWakeOnce sync.Once
+	compatDiscoveryWake     chan struct{}
 	// antigravityRefreshPending is protected by antigravityProbeMu. Each entry
 	// owns one worker and at most one queued snapshot shared by all probe entry
 	// points. A nil value means the worker is running without a queued successor.

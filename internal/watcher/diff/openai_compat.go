@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -97,6 +98,9 @@ func describeOpenAICompatibilityUpdate(oldEntry, newEntry config.OpenAICompatibi
 	}
 	if !equalStringMap(oldEntry.Headers, newEntry.Headers) {
 		details = append(details, "headers updated")
+	}
+	if !reflect.DeepEqual(oldEntry.ModelsDiscovery, newEntry.ModelsDiscovery) {
+		details = append(details, fmt.Sprintf("models-discovery %t -> %t", oldEntry.DiscoveryEnabled(), newEntry.DiscoveryEnabled()))
 	}
 	if openAICompatConnectionPoolChanged(oldEntry, newEntry) {
 		details = append(details, "connection-pool updated")

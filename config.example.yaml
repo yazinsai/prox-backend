@@ -956,6 +956,13 @@ upstream:
 #           # connection-pool: # optional: per-key override of the group pool block
 #           #   enabled: true
 #         - api-key: "sk-or-v1-...b781" # without proxy-url
+#       models-discovery: # optional: also route every model listed by GET {base-url}/models
+#         enabled: true
+#         refresh-interval: "6h"  # optional: default 6h, minimum 15m; failures back off without hammering upstream
+#         exclude: ["*-preview"]  # optional: discovered IDs to skip ("*" wildcards)
+#         # Lists persist across restarts and are only replaced by a successful, non-empty
+#         # response. Entries under models keep their aliases and settings; discovered IDs
+#         # not already exposed are routed under their own name.
 #       models: # The models supported by the provider.
 #         - name: "moonshotai/kimi-k2:free" # The actual model name.
 #           alias: "kimi-k2"               # The alias used in the API.

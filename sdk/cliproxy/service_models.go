@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/compatmodels"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelconfig"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -854,13 +855,20 @@ func buildConfiguredModelInfo(model modelEntry, ownedBy, modelType string, creat
 }
 
 func buildOpenAICompatibilityConfigModels(compat *config.OpenAICompatibility) []*ModelInfo {
-	if compat == nil || len(compat.Models) == 0 {
+	if compat == nil {
+		return nil
+	}
+	entries := compat.Models
+	if compat.DiscoveryEnabled() {
+		entries = withDiscoveredCompatModels(compat, compatmodels.Default().Models(compat.Name, compat.BaseURL))
+	}
+	if len(entries) == 0 {
 		return nil
 	}
 	now := time.Now().Unix()
-	models := make([]*ModelInfo, 0, len(compat.Models))
-	for i := range compat.Models {
-		model := compat.Models[i]
+	models := make([]*ModelInfo, 0, len(entries))
+	for i := range entries {
+		model := entries[i]
 		modelType := "openai-compatibility"
 		if model.Image {
 			modelType = registry.OpenAIImageModelType
