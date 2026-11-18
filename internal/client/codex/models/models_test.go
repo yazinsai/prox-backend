@@ -172,6 +172,19 @@ func TestCodexClientModelsResponse_RewritesTemplateMultiAgentVersionWhenEnabled(
 	}
 }
 
+func TestCodexClientModelsResponse_MarksAllModelsSupportedInAPI(t *testing.T) {
+	resp := BuildResponse([]map[string]any{{"id": "claude-opus-5-5"}, {"id": "gpt-5.5"}}, nil, false)
+	models, ok := resp["models"].([]map[string]any)
+	if !ok || len(models) != 2 {
+		t.Fatalf("models = %#v, want two models", resp["models"])
+	}
+	for _, model := range models {
+		if got, ok := model["supported_in_api"].(bool); !ok || !got {
+			t.Errorf("%s supported_in_api = %#v, want true", stringModelValue(model, "slug"), model["supported_in_api"])
+		}
+	}
+}
+
 func TestCodexClientModelsResponse_DisablesSearchToolForSynthesizedModels(t *testing.T) {
 	resp := BuildResponse([]map[string]any{
 		{"id": "custom-openai-compatible-model"},

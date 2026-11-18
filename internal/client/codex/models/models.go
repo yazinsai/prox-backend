@@ -162,6 +162,12 @@ func buildCodexClientModelsWithToolCapabilities(models []map[string]any, provide
 		result = append(result, entry)
 	}
 
+	// Every catalog entry is served over this proxy's API, whatever its template
+	// says. Codex >= 0.169 drops supported_in_api=false models from model/list.
+	for _, entry := range result {
+		entry["supported_in_api"] = true
+	}
+
 	applyCodexClientNonTemplatePriorities(result, templates)
 
 	sort.SliceStable(result, func(i, j int) bool {
