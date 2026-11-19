@@ -53,6 +53,17 @@ func Normalize(id string) string {
 	return strings.Join(out, "-")
 }
 
+// DisplayName drops a trailing effort label, matching Normalize:
+// "Claude Opus 5.5 (High)" -> "Claude Opus 5.5".
+func DisplayName(name string) string {
+	name = strings.TrimSpace(name)
+	open := strings.LastIndex(name, " (")
+	if open > 0 && strings.HasSuffix(name, ")") && effortSuffixes[strings.ToLower(name[open+2:len(name)-1])] {
+		return strings.TrimSpace(name[:open])
+	}
+	return name
+}
+
 var enabled atomic.Bool
 
 // SetEnabled records routing.normalize-model-names for request-time lookups.

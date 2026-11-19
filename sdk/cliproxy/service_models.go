@@ -1213,18 +1213,25 @@ func applyOAuthModelAliasForAuth(cfg *config.Config, provider, authKind string, 
 	return models
 }
 
-// normalizeModelNames lists models under their normalized names and records the
-// listed name each one replaces, so execution can send the original upstream.
+// normalizeModelNames lists models under their normalized names, without effort
+// labels in display names, and records the listed name each one replaces, so
+// execution can send the original upstream.
 func normalizeModelNames(channel string, models []*ModelInfo) []*ModelInfo {
+	models = append([]*ModelInfo(nil), models...)
 	renames := make([]config.OAuthModelAlias, 0, len(models))
-	for _, model := range models {
+	for i, model := range models {
 		if model == nil {
 			continue
 		}
 		id := strings.TrimSpace(model.ID)
+		displayName := modelnames.DisplayName(model.DisplayName)
 		if normalized := modelnames.Normalize(id); normalized != "" && !strings.EqualFold(normalized, id) {
-			renames = append(renames, config.OAuthModelAlias{Name: id, Alias: normalized})
+			renames = append(renames, config.OAuthModelAlias{Name: id, Alias: normalized, DisplayName: displayName})
 			modelnames.RecordOriginal(channel, normalized, id)
+		} else if displayName != model.DisplayName {
+			clone := cloneModelInfoForCatalogRoute(model)
+			clone.DisplayName = displayName
+			models[i] = &clone
 		}
 	}
 	if len(renames) == 0 {

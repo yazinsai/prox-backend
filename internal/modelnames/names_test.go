@@ -61,3 +61,17 @@ func TestNormalize(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayName(t *testing.T) {
+	for in, want := range map[string]string{
+		"Claude Opus 5.5 (High)":            "Claude Opus 5.5",
+		"GPT-OSS 120B (Medium)":             "GPT-OSS 120B",
+		"Gemini 3.8 Flash (xhigh)":          "Gemini 3.8 Flash",
+		"deepseek-v4.1-Flash (Abliterated)": "deepseek-v4.1-Flash (Abliterated)",
+		"Claude Opus 5.5":                   "Claude Opus 5.5",
+	} {
+		if got := DisplayName(in); got != want {
+			t.Errorf("DisplayName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
