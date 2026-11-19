@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"strconv"
 	"strings"
 	"time"
@@ -161,6 +162,9 @@ func responsesWebsocketPinnedAuthMatchesModel(auth *coreauth.Auth, modelName str
 }
 
 func responsesWebsocketResolvedModelName(modelName string) string {
+	if legacy := modelnames.LegacyRequest(modelName, func(model string) bool { return len(util.GetProviderName(model)) > 0 }); legacy != "" {
+		modelName = legacy
+	}
 	initialSuffix := thinking.ParseSuffix(modelName)
 	if initialSuffix.ModelName == "auto" {
 		resolvedBase := util.ResolveAutoModel(initialSuffix.ModelName)

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"strings"
 
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -265,6 +266,30 @@ func (m *Manager) resolveOAuthModelAliasWithResult(auth *Auth, requestedModel st
 	if channel == "" {
 		return OAuthModelAliasResult{}
 	}
+	if result := m.resolveConfiguredOAuthModelAlias(auth, requestedModel, channel); result.UpstreamModel != "" {
+		return result
+	}
+	if !modelnames.Enabled() {
+		return OAuthModelAliasResult{}
+	}
+	requestResult, _ := modelAliasLookupCandidates(requestedModel)
+	base := requestResult.ModelName
+	if base == "" {
+		base = strings.TrimSpace(requestedModel)
+	}
+	original := modelnames.Original(channel, base)
+	if original == "" {
+		return OAuthModelAliasResult{}
+	}
+	// The listed name may itself be a configured alias of the upstream model.
+	originalRequest := preserveResolvedModelSuffix(original, requestResult)
+	if result := m.resolveConfiguredOAuthModelAlias(auth, originalRequest, channel); result.UpstreamModel != "" {
+		return result
+	}
+	return OAuthModelAliasResult{UpstreamModel: originalRequest, OriginalAlias: requestedModel}
+}
+
+func (m *Manager) resolveConfiguredOAuthModelAlias(auth *Auth, requestedModel, channel string) OAuthModelAliasResult {
 	if result := resolveUpstreamModelFromAliases(OAuthModelAliasesFromAttributes(authAttributes(auth)), requestedModel); result.UpstreamModel != "" {
 		return result
 	}

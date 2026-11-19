@@ -201,6 +201,12 @@ routing:
   # Ignored when routing.session-affinity is false.
   session-affinity-rebind-on: "any"
 
+  # List built-in provider models under one naming convention: dotted versions and no
+  # effort suffix ("claude-opus-5-5" -> "claude-opus-5.5", "gemini-3.8-flash-high" ->
+  # "gemini-3.8-flash"). Upstream still receives the original ID, and requests for an
+  # original name keep working. Release tags such as "-1017" are kept.
+  normalize-model-names: false
+
   # When true, unprefixed model requests only use credentials without a prefix (except when prefix == model name).
   force-model-prefix: false
 

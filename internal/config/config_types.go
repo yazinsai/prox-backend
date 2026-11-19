@@ -561,6 +561,12 @@ type RoutingConfig struct {
 	//     auth errors (429, 401/402/403, 404/model support, invalid_grant) rebind as normal.
 	// Ignored when SessionAffinity is false.
 	SessionAffinityRebindOn string `yaml:"session-affinity-rebind-on,omitempty" json:"session-affinity-rebind-on,omitempty"`
+
+	// NormalizeModelNames lists built-in provider models under one naming convention
+	// ("claude-opus-5-5" -> "claude-opus-5.5", "gemini-3.8-flash-high" ->
+	// "gemini-3.8-flash"). Upstream still receives the original ID, and requests for
+	// an original name are routed to its normalized name.
+	NormalizeModelNames bool `yaml:"normalize-model-names,omitempty" json:"normalize-model-names,omitempty"`
 }
 
 // OAuthModelAlias defines a model ID alias for a specific channel.

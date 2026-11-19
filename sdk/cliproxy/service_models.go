@@ -2,6 +2,7 @@ package cliproxy
 
 import (
 	"context"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"strconv"
 	"strings"
 	"time"
@@ -1203,11 +1204,33 @@ func applyOAuthModelAliasForAuth(cfg *config.Config, provider, authKind string, 
 	if channel == "" {
 		return models
 	}
-	aliases := oauthModelAliasesForAuth(cfg, channel, attributes)
-	if len(aliases) == 0 {
+	if aliases := oauthModelAliasesForAuth(cfg, channel, attributes); len(aliases) > 0 {
+		models = applyOAuthModelAliasEntries(aliases, models)
+	}
+	if cfg != nil && cfg.Routing.NormalizeModelNames {
+		models = normalizeModelNames(channel, models)
+	}
+	return models
+}
+
+// normalizeModelNames lists models under their normalized names and records the
+// listed name each one replaces, so execution can send the original upstream.
+func normalizeModelNames(channel string, models []*ModelInfo) []*ModelInfo {
+	renames := make([]config.OAuthModelAlias, 0, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		id := strings.TrimSpace(model.ID)
+		if normalized := modelnames.Normalize(id); normalized != "" && !strings.EqualFold(normalized, id) {
+			renames = append(renames, config.OAuthModelAlias{Name: id, Alias: normalized})
+			modelnames.RecordOriginal(channel, normalized, id)
+		}
+	}
+	if len(renames) == 0 {
 		return models
 	}
-	return applyOAuthModelAliasEntries(aliases, models)
+	return applyOAuthModelAliasEntries(renames, models)
 }
 
 func oauthModelAliasesForAuth(cfg *config.Config, channel string, attributes map[string]string) []config.OAuthModelAlias {

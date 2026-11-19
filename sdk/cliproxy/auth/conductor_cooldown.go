@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"io"
 	"net"
 	"net/http"
@@ -173,6 +174,7 @@ func (m *Manager) setConfigSnapshotLocked(cfg *internalconfig.Config) bool {
 		m.homeSessionAliases.clear()
 	}
 	m.runtimeConfig.Store(cfg)
+	modelnames.SetEnabled(cfg != nil && cfg.Routing.NormalizeModelNames)
 	clearedCooldowns := m.clearDisabledCooldownStates(cfg)
 	if clearedCooldowns && oldCooldownStore != nil {
 		m.mu.Lock()

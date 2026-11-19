@@ -1,62 +1,16 @@
 package compatmodels
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 )
 
-// Vendor prefixes some aggregators put in front of an upstream model ID
-// ("openai-gpt-61-sol"). Normalized names drop them so one model has one name
-// across providers.
-var vendorPrefixes = []string{"openai-", "z-ai-", "zai-org-", "google-", "xiaomi-", "nvidia-", "aion-labs-"}
-
-var (
-	datedID        = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-	squashedGPT    = regexp.MustCompile(`^gpt-(\d)(\d)(-|$)`)
-	squashedMinMax = regexp.MustCompile(`^minimax-m(\d)(\d)(-|$)`)
-	gluedQwen      = regexp.MustCompile(`^qwen(\d)`)
-	versionMajor   = regexp.MustCompile(`^[a-z]?\d{1,2}$`)
-	versionMinor   = regexp.MustCompile(`^\d{1,2}$`)
-)
-
-// NormalizeName rewrites a discovered model ID to the "family-major.minor-variant"
-// convention: "gemini-3-8-flash" -> "gemini-3.8-flash", "openai-gpt-61-sol" ->
-// "gpt-6.1-sol", "qwen3.8-max" -> "qwen-3.8-max". Claude IDs keep their upstream dashes, and
-// dated snapshots only lose a vendor prefix. An "e2ee-" marker is preserved.
-func NormalizeName(id string) string {
-	id = strings.TrimSpace(id)
-	lower := strings.ToLower(id)
-	if lower == "" || strings.HasPrefix(lower, "claude-") {
-		return id
-	}
-	marker := ""
-	if strings.HasPrefix(lower, "e2ee-") {
-		marker, lower = "e2ee-", lower[len("e2ee-"):]
-	}
-	for _, prefix := range vendorPrefixes {
-		lower = strings.TrimPrefix(lower, prefix)
-	}
-	if datedID.MatchString(lower) {
-		return marker + lower
-	}
-	lower = squashedGPT.ReplaceAllString(lower, "gpt-$1.$2$3")
-	lower = squashedMinMax.ReplaceAllString(lower, "minimax-m$1.$2$3")
-	lower = gluedQwen.ReplaceAllString(lower, "qwen-$1")
-
-	tokens := strings.Split(lower, "-")
-	out := make([]string, 0, len(tokens))
-	for i := 0; i < len(tokens); i++ {
-		if i+1 < len(tokens) && versionMajor.MatchString(tokens[i]) && versionMinor.MatchString(tokens[i+1]) {
-			out = append(out, tokens[i]+"."+tokens[i+1])
-			i++
-			continue
-		}
-		out = append(out, tokens[i])
-	}
-	return marker + strings.Join(out, "-")
-}
+// NormalizeName rewrites a discovered model ID to the shared naming convention;
+// see modelnames.Normalize.
+func NormalizeName(id string) string { return modelnames.Normalize(id) }
 
 // MergeDiscovered appends discovered IDs that the configured entries do not
 // already expose. Configured entries keep their aliases and settings; a discovered

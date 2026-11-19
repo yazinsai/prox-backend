@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"net/http"
 	"strings"
 
@@ -207,6 +208,13 @@ func (h *BaseAPIHandler) getRequestDetailsWithOptions(modelName string, allowIma
 	if len(providers) == 0 && baseModel != resolvedModelName {
 		providers = util.GetProviderName(resolvedModelName)
 	}
+	if len(providers) == 0 {
+		// A pre-normalization name ("claude-opus-5-5") routes to its normalized name.
+		if legacy := modelnames.LegacyRequest(resolvedModelName, routableModel); legacy != "" {
+			resolvedModelName = legacy
+			providers = util.GetProviderName(strings.TrimSpace(thinking.ParseSuffix(legacy).ModelName))
+		}
+	}
 
 	if len(providers) == 0 {
 		// The client asked for a model this proxy cannot route. Report it as a request
@@ -390,3 +398,5 @@ func (h *BaseAPIHandler) applyModelRouter(ctx context.Context, handlerType, mode
 	}
 	return decision
 }
+
+func routableModel(model string) bool { return len(util.GetProviderName(model)) > 0 }
