@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/compatmodels"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1025,7 +1026,7 @@ func openAICompatRoutedModels(entry *internalconfig.OpenAICompatibility) []inter
 	if entry == nil {
 		return nil
 	}
-	if !entry.DiscoveryEnabled() || !entry.ModelsDiscovery.NormalizeNames {
+	if !entry.DiscoveryEnabled() || !modelnames.Enabled() {
 		return entry.Models
 	}
 	return compatmodels.MergeDiscovered(entry, compatmodels.Default().Models(entry.Name, entry.BaseURL))

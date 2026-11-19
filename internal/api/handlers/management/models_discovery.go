@@ -10,7 +10,7 @@ import (
 
 // GetDiscoveredModels reports the catalogs listed by OpenAI-compatible providers
 // with models-discovery enabled. Each provider's models are the names discovery
-// adds to routing (normalized when normalize-names is on, without IDs the
+// adds to routing (normalized when routing.normalize-model-names is on, without IDs the
 // configured models already expose). It reads cached state and never calls upstream.
 //
 //	GET /v8/management/routing/discovered-models

@@ -562,7 +562,7 @@ type RoutingConfig struct {
 	// Ignored when SessionAffinity is false.
 	SessionAffinityRebindOn string `yaml:"session-affinity-rebind-on,omitempty" json:"session-affinity-rebind-on,omitempty"`
 
-	// NormalizeModelNames lists built-in provider models under one naming convention
+	// NormalizeModelNames lists built-in and discovered models under one naming convention
 	// ("claude-opus-5-5" -> "claude-opus-5.5", "gemini-3.8-flash-high" ->
 	// "gemini-3.8-flash"). Upstream still receives the original ID, and requests for
 	// an original name are routed to its normalized name.
@@ -1124,10 +1124,6 @@ type OpenAICompatibilityModelsDiscovery struct {
 
 	// Exclude lists discovered model IDs to skip; "*" wildcards are supported.
 	Exclude []string `yaml:"exclude,omitempty" json:"exclude,omitempty"`
-
-	// NormalizeNames routes discovered IDs under a normalized name
-	// ("gemini-3-8-flash" -> "gemini-3.8-flash"); upstream still receives the raw ID.
-	NormalizeNames bool `yaml:"normalize-names,omitempty" json:"normalize-names,omitempty"`
 }
 
 // DiscoveryEnabled reports whether this provider lists its models upstream.

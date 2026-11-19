@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,8 +21,10 @@ func TestNormalizedDiscoveredModelResolvesToUpstreamID(t *testing.T) {
 		Name:            "normalize-fixture",
 		BaseURL:         server.URL,
 		APIKeyEntries:   []internalconfig.OpenAICompatibilityAPIKey{{APIKey: "fixture-key"}},
-		ModelsDiscovery: &internalconfig.OpenAICompatibilityModelsDiscovery{Enabled: true, NormalizeNames: true},
+		ModelsDiscovery: &internalconfig.OpenAICompatibilityModelsDiscovery{Enabled: true},
 	}}}
+	modelnames.SetEnabled(true)
+	defer modelnames.SetEnabled(false)
 	targets := compatmodels.Targets(cfg)
 	if _, err := compatmodels.Default().Refresh(context.Background(), targets[0]); err != nil {
 		t.Fatalf("refresh: %v", err)
@@ -39,8 +42,8 @@ func TestNormalizedDiscoveredModelResolvesToUpstreamID(t *testing.T) {
 		}
 	}
 
-	cfg.OpenAICompatibility[0].ModelsDiscovery.NormalizeNames = false
+	modelnames.SetEnabled(false)
 	if got := resolveUpstreamModelForOpenAICompatAPIKey(cfg, auth, "gemini-3-7-flash"); got != "" {
-		t.Errorf("without normalize-names a raw discovered ID needs no mapping, got %q", got)
+		t.Errorf("without normalization a raw discovered ID needs no mapping, got %q", got)
 	}
 }

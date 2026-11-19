@@ -8,14 +8,10 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 )
 
-// NormalizeName rewrites a discovered model ID to the shared naming convention;
-// see modelnames.Normalize.
-func NormalizeName(id string) string { return modelnames.Normalize(id) }
-
 // MergeDiscovered appends discovered IDs that the configured entries do not
 // already expose. Configured entries keep their aliases and settings; a discovered
 // ID is sent upstream unchanged and routed under its own name, or under its
-// normalized name when the provider enables normalize-names. When several IDs
+// normalized name when routing.normalize-model-names is on. When several IDs
 // normalize to one name, the first in catalog order wins.
 func MergeDiscovered(compat *config.OpenAICompatibility, discovered []string) []config.OpenAICompatibilityModel {
 	if compat == nil {
@@ -32,7 +28,7 @@ func MergeDiscovered(compat *config.OpenAICompatibility, discovered []string) []
 		}
 		exposed[strings.ToLower(id)] = struct{}{}
 	}
-	normalize := compat.ModelsDiscovery.NormalizeNames
+	normalize := modelnames.Enabled()
 	out := append([]config.OpenAICompatibilityModel(nil), compat.Models...)
 	for _, id := range discovered {
 		if Excluded(compat.ModelsDiscovery.Exclude, id) {
@@ -40,7 +36,7 @@ func MergeDiscovered(compat *config.OpenAICompatibility, discovered []string) []
 		}
 		alias := id
 		if normalize {
-			alias = NormalizeName(id)
+			alias = modelnames.Normalize(id)
 		}
 		_, idTaken := exposed[strings.ToLower(id)]
 		_, aliasTaken := exposed[strings.ToLower(alias)]

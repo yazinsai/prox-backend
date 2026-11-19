@@ -9,53 +9,37 @@ import (
 	"sync/atomic"
 )
 
-// Vendor prefixes some aggregators put in front of an upstream model ID
-// ("openai-gpt-61-sol").
-var vendorPrefixes = []string{"openai-", "z-ai-", "zai-org-", "google-", "xiaomi-", "nvidia-", "aion-labs-"}
-
 // Reasoning effort is a request setting, so an effort suffix in the name is dropped.
-var effortSuffixes = map[string]struct{}{"minimal": {}, "low": {}, "medium": {}, "high": {}, "xhigh": {}}
+var effortSuffixes = map[string]bool{"minimal": true, "low": true, "medium": true, "high": true, "xhigh": true}
 
 var (
-	datedID        = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-	squashedGPT    = regexp.MustCompile(`^gpt-(\d)(\d)(-|$)`)
-	squashedMinMax = regexp.MustCompile(`^minimax-m(\d)(\d)(-|$)`)
-	gluedQwen      = regexp.MustCompile(`^qwen(\d)`)
-	versionMajor   = regexp.MustCompile(`^[a-z]?\d{1,2}$`)
-	versionMinor   = regexp.MustCompile(`^\d{1,2}$`)
+	datedID      = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+	gluedVersion = regexp.MustCompile(`^([a-z]{3,})(\d.*)$`)
+	versionMajor = regexp.MustCompile(`^[a-z]?\d{1,2}$`)
+	versionMinor = regexp.MustCompile(`^\d{1,2}$`)
 )
 
-// Normalize rewrites a model ID to the "family-major.minor-variant" convention:
-// "gemini-3-8-flash" -> "gemini-3.8-flash", "openai-gpt-61-sol" -> "gpt-6.1-sol",
-// "claude-opus-5-5-fast" -> "claude-opus-5.5-fast", "gemini-3.8-flash-high" ->
-// "gemini-3.8-flash". Only one- and two-digit pairs are joined, so release tags
-// such as "-1017" or "-20251101" stay, and dated "YYYY-MM-DD" snapshots only lose
-// a vendor prefix. An "e2ee-" marker is preserved.
+// Normalize rewrites a model ID to "family-major.minor-variant" with three generic
+// rules: adjacent short version numbers are joined ("gemini-3-8-flash" ->
+// "gemini-3.8-flash", "kimi-k3-1-pro" -> "kimi-k3.1-pro"), a family glued to its
+// version is split ("qwen3.8-max" -> "qwen-3.8-max"), and a trailing effort level
+// is dropped ("gemini-3.8-flash-high" -> "gemini-3.8-flash"). Longer numbers such
+// as "-1017" and dated "YYYY-MM-DD" snapshots are left alone.
 func Normalize(id string) string {
-	id = strings.TrimSpace(id)
-	lower := strings.ToLower(id)
-	if lower == "" {
-		return id
+	name := strings.ToLower(strings.TrimSpace(id))
+	if name == "" || datedID.MatchString(name) {
+		return name
 	}
-	marker := ""
-	if strings.HasPrefix(lower, "e2ee-") {
-		marker, lower = "e2ee-", lower[len("e2ee-"):]
-	}
-	for _, prefix := range vendorPrefixes {
-		lower = strings.TrimPrefix(lower, prefix)
-	}
-	if datedID.MatchString(lower) {
-		return marker + lower
-	}
-	lower = squashedGPT.ReplaceAllString(lower, "gpt-$1.$2$3")
-	lower = squashedMinMax.ReplaceAllString(lower, "minimax-m$1.$2$3")
-	lower = gluedQwen.ReplaceAllString(lower, "qwen-$1")
-
-	tokens := strings.Split(lower, "-")
-	if n := len(tokens); n > 2 {
-		if _, ok := effortSuffixes[tokens[n-1]]; ok {
-			tokens = tokens[:n-1]
+	var tokens []string
+	for _, token := range strings.Split(name, "-") {
+		if parts := gluedVersion.FindStringSubmatch(token); parts != nil {
+			tokens = append(tokens, parts[1], parts[2])
+			continue
 		}
+		tokens = append(tokens, token)
+	}
+	if n := len(tokens); n > 2 && effortSuffixes[tokens[n-1]] {
+		tokens = tokens[:n-1]
 	}
 	out := make([]string, 0, len(tokens))
 	for i := 0; i < len(tokens); i++ {
@@ -66,7 +50,7 @@ func Normalize(id string) string {
 		}
 		out = append(out, tokens[i])
 	}
-	return marker + strings.Join(out, "-")
+	return strings.Join(out, "-")
 }
 
 var enabled atomic.Bool
