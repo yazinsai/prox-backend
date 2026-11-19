@@ -3,9 +3,8 @@ package compatmodels
 import (
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
-
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/modelnames"
 )
 
 // MergeDiscovered appends discovered IDs that the configured entries do not
@@ -29,6 +28,10 @@ func MergeDiscovered(compat *config.OpenAICompatibility, discovered []string) []
 		exposed[strings.ToLower(id)] = struct{}{}
 	}
 	normalize := modelnames.Enabled()
+	normalizeID := modelnames.Normalize
+	if isVenice(compat) {
+		normalizeID = normalizeVenice
+	}
 	out := append([]config.OpenAICompatibilityModel(nil), compat.Models...)
 	for _, id := range discovered {
 		if Excluded(compat.ModelsDiscovery.Exclude, id) {
@@ -36,7 +39,7 @@ func MergeDiscovered(compat *config.OpenAICompatibility, discovered []string) []
 		}
 		alias := id
 		if normalize {
-			alias = modelnames.Normalize(id)
+			alias = normalizeID(id)
 		}
 		_, idTaken := exposed[strings.ToLower(id)]
 		_, aliasTaken := exposed[strings.ToLower(alias)]

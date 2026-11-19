@@ -205,6 +205,8 @@ routing:
   # effort suffix ("claude-opus-5-5" -> "claude-opus-5.5", "gemini-3.8-flash-high" ->
   # "gemini-3.8-flash"). Upstream still receives the original ID, and requests for an
   # original name keep working. Release tags such as "-1017" are kept.
+  # Venice discovery also removes known vendor prefixes and expands compact GPT/MiniMax
+  # versions ("openai-gpt-61-sol" -> "gpt-6.1-sol", "minimax-m27" -> "minimax-m2.7").
   normalize-model-names: false
 
   # When true, unprefixed model requests only use credentials without a prefix (except when prefix == model name).
