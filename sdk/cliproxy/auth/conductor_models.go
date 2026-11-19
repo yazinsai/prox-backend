@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/compatmodels"
 	"net/http"
 	"strconv"
 	"strings"
@@ -156,7 +157,7 @@ func resolveOpenAICompatUpstreamModelPool(cfg *internalconfig.Config, auth *Auth
 	if entry == nil {
 		return nil
 	}
-	return resolveModelAliasPoolFromConfigModels(requestedModel, asModelAliasEntries(entry.Models))
+	return resolveModelAliasPoolFromConfigModels(requestedModel, asModelAliasEntries(openAICompatRoutedModels(entry)))
 }
 
 func preserveRequestedModelSuffix(requestedModel, resolved string) string {
@@ -495,7 +496,7 @@ func configuredModelAliasEntries(cfg *internalconfig.Config, auth *Auth) []model
 		}
 		if compatName != "" || strings.EqualFold(strings.TrimSpace(auth.Provider), "openai-compatibility") {
 			if entry := resolveOpenAICompatConfigForAuth(cfg, auth, providerKey, compatName); entry != nil {
-				models = asModelAliasEntries(entry.Models)
+				models = asModelAliasEntries(openAICompatRoutedModels(entry))
 			}
 		}
 	}
@@ -656,7 +657,7 @@ func (m *Manager) rebuildAPIKeyModelAliasLocked(cfg *internalconfig.Config) {
 			}
 			if compatName != "" || strings.EqualFold(strings.TrimSpace(auth.Provider), "openai-compatibility") {
 				if entry := resolveOpenAICompatConfigForAuth(cfg, auth, providerKey, compatName); entry != nil {
-					compileAPIKeyModelAliasForModels(byAlias, entry.Models)
+					compileAPIKeyModelAliasForModels(byAlias, openAICompatRoutedModels(entry))
 				}
 			}
 		}
@@ -952,7 +953,7 @@ func resolveUpstreamModelForOpenAICompatAPIKey(cfg *internalconfig.Config, auth 
 	if entry == nil {
 		return ""
 	}
-	return resolveModelAliasFromConfigModels(requestedModel, asModelAliasEntries(entry.Models))
+	return resolveModelAliasFromConfigModels(requestedModel, asModelAliasEntries(openAICompatRoutedModels(entry)))
 }
 
 type apiKeyModelAliasTable map[string]map[string]string
@@ -1014,4 +1015,18 @@ func asModelAliasEntries[T interface {
 		out = append(out, models[i])
 	}
 	return out
+}
+
+// openAICompatRoutedModels lists the provider's configured models plus the names
+// models-discovery routes, so a normalized discovered name resolves to its raw
+// upstream ID. Discovery republishes credentials on catalog changes, which
+// rebuilds the compiled alias tables.
+func openAICompatRoutedModels(entry *internalconfig.OpenAICompatibility) []internalconfig.OpenAICompatibilityModel {
+	if entry == nil {
+		return nil
+	}
+	if !entry.DiscoveryEnabled() || !entry.ModelsDiscovery.NormalizeNames {
+		return entry.Models
+	}
+	return compatmodels.MergeDiscovered(entry, compatmodels.Default().Models(entry.Name, entry.BaseURL))
 }

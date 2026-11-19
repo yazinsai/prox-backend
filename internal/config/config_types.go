@@ -1118,6 +1118,10 @@ type OpenAICompatibilityModelsDiscovery struct {
 
 	// Exclude lists discovered model IDs to skip; "*" wildcards are supported.
 	Exclude []string `yaml:"exclude,omitempty" json:"exclude,omitempty"`
+
+	// NormalizeNames routes discovered IDs under a normalized name
+	// ("gemini-3-8-flash" -> "gemini-3.8-flash"); upstream still receives the raw ID.
+	NormalizeNames bool `yaml:"normalize-names,omitempty" json:"normalize-names,omitempty"`
 }
 
 // DiscoveryEnabled reports whether this provider lists its models upstream.

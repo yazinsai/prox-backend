@@ -960,6 +960,8 @@ upstream:
 #         enabled: true
 #         refresh-interval: "6h"  # optional: default 6h, minimum 15m; failures back off without hammering upstream
 #         exclude: ["*-preview"]  # optional: discovered IDs to skip ("*" wildcards)
+#         normalize-names: true   # optional: route discovered IDs as "gemini-3.8-flash", "gpt-6.1-sol", "qwen-3.8-max"
+#                                 # (dotted versions, no vendor prefix); upstream still receives the raw ID
 #         # Lists persist across restarts and are only replaced by a successful, non-empty
 #         # response. Entries under models keep their aliases and settings; discovered IDs
 #         # not already exposed are routed under their own name.

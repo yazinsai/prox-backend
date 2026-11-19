@@ -18,33 +18,10 @@ const (
 	compatDiscoveryMinWake = 5 * time.Second
 )
 
-// withDiscoveredCompatModels appends discovered IDs that the configured entries do
-// not already expose. Configured entries keep their aliases and settings; a
-// discovered ID is routed under its own name and sent upstream unchanged.
+// withDiscoveredCompatModels merges configured and discovered models; see
+// compatmodels.MergeDiscovered.
 func withDiscoveredCompatModels(compat *config.OpenAICompatibility, discovered []string) []config.OpenAICompatibilityModel {
-	if compat == nil {
-		return nil
-	}
-	if !compat.DiscoveryEnabled() || len(discovered) == 0 {
-		return compat.Models
-	}
-	exposed := make(map[string]struct{}, len(compat.Models)+len(discovered))
-	for _, model := range compat.Models {
-		id := strings.TrimSpace(model.Alias)
-		if id == "" {
-			id = strings.TrimSpace(model.Name)
-		}
-		exposed[strings.ToLower(id)] = struct{}{}
-	}
-	out := append([]config.OpenAICompatibilityModel(nil), compat.Models...)
-	for _, id := range discovered {
-		if _, ok := exposed[strings.ToLower(id)]; ok || compatmodels.Excluded(compat.ModelsDiscovery.Exclude, id) {
-			continue
-		}
-		exposed[strings.ToLower(id)] = struct{}{}
-		out = append(out, config.OpenAICompatibilityModel{Name: id, Alias: id})
-	}
-	return out
+	return compatmodels.MergeDiscovered(compat, discovered)
 }
 
 func compatDiscoveryTargets(cfg *config.Config) []compatmodels.Target {
